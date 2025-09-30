@@ -32,9 +32,11 @@ class FaceEmotionGUI(TkinterDnD.Tk):
         self.geometry("1200x800")
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.yolo_model = YOLO("yolov8n.pt")
-        self.emotion_model = self.load_emotion_model("models/efficientnet_b4_Tuned2_best.pth")
+        self.yolo_model = YOLO("models/yolov12n-face.pt")
         self.emotion_labels = ['Angry', 'Disgust', 'Fear', 'Happy', 'Sad', 'Surprise', 'Neutral'] # As per USAGE.md, 7 emotions
+
+        # Initialize emotion model (will be loaded after widgets setup)
+        self.emotion_model = None
 
         self.transform = transforms.Compose([
             transforms.Resize((224, 224)),
@@ -43,6 +45,7 @@ class FaceEmotionGUI(TkinterDnD.Tk):
         ])
 
         self.setup_widgets()
+        self.load_initial_emotion_model()
         self.drop_target_register(DND_FILES)
         self.dnd_bind('<<Drop>>', self.drop_image)
 
@@ -68,21 +71,32 @@ class FaceEmotionGUI(TkinterDnD.Tk):
         self.process_btn.grid(row=0, column=2, padx=5, pady=5)
 
         # --- Row 1: Model and Confidence ---
-        ttk.Label(control_frame, text="YOLO Model:").grid(row=1, column=0, padx=5, pady=5)
-        self.yolo_model_var = tk.StringVar(value="yolov8n.pt")
-        self.yolo_model_menu = ttk.Combobox(control_frame, textvariable=self.yolo_model_var, values=["yolov8n.pt", "yolov8s.pt", "yolov8m.pt", "yolov8l.pt"])
+        ttk.Label(control_frame, text="YOLO Model:").grid(row=1, column=0, padx=5, pady=5, sticky=tk.W)
+        self.yolo_model_var = tk.StringVar(value="yolov12n-face.pt")
+        self.yolo_model_menu = ttk.Combobox(control_frame, textvariable=self.yolo_model_var,
+                                            values=["yolov12n-face.pt", "yolov8n.pt", "yolov8s.pt", "yolov8m.pt"],
+                                            width=20)
         self.yolo_model_menu.grid(row=1, column=1, padx=5, pady=5)
         self.yolo_model_menu.bind("<<ComboboxSelected>>", self.update_yolo_model)
 
-        ttk.Label(control_frame, text="Confidence:").grid(row=1, column=2, padx=5, pady=5)
+        ttk.Label(control_frame, text="Confidence:").grid(row=1, column=2, padx=5, pady=5, sticky=tk.W)
         self.confidence_var = tk.DoubleVar(value=0.5)
         self.confidence_scale = ttk.Scale(control_frame, from_=0.1, to=1.0, variable=self.confidence_var, orient=tk.HORIZONTAL, command=self.update_confidence_label)
         self.confidence_scale.grid(row=1, column=3, padx=5, pady=5)
         self.confidence_label = ttk.Label(control_frame, text=f"{self.confidence_var.get():.2f}")
         self.confidence_label.grid(row=1, column=4, padx=5, pady=5)
 
-        # --- Row 2: Device Info ---
-        ttk.Label(control_frame, text=f"Device: {self.device}").grid(row=2, column=0, padx=10, pady=5)
+        # --- Row 2: Emotion Model ---
+        ttk.Label(control_frame, text="Emotion Model:").grid(row=2, column=0, padx=5, pady=5, sticky=tk.W)
+        self.emotion_model_var = tk.StringVar(value="efficientnet_b4_Tuned2_best.pth")
+        self.emotion_model_menu = ttk.Combobox(control_frame, textvariable=self.emotion_model_var,
+                                                values=["efficientnet_b4_Tuned2_best.pth", "best_emotion_model.pth"],
+                                                width=30)
+        self.emotion_model_menu.grid(row=2, column=1, columnspan=2, padx=5, pady=5, sticky=tk.W)
+        self.emotion_model_menu.bind("<<ComboboxSelected>>", self.update_emotion_model)
+
+        # --- Row 3: Device Info ---
+        ttk.Label(control_frame, text=f"Device: {self.device}").grid(row=3, column=0, padx=10, pady=5)
 
         # Image display frame
         image_frame = ttk.Frame(main_frame, padding="10")
@@ -160,13 +174,30 @@ class FaceEmotionGUI(TkinterDnD.Tk):
     def update_confidence_label(self, value):
         self.confidence_label.config(text=f"{float(value):.2f}")
 
+    def load_initial_emotion_model(self):
+        """Load the default emotion model on startup"""
+        model_name = self.emotion_model_var.get()
+        model_path = f"models/{model_name}"
+        self.emotion_model = self.load_emotion_model(model_path)
+
     def update_yolo_model(self, event):
         model_name = self.yolo_model_var.get()
+        model_path = f"models/{model_name}"
         try:
-            self.yolo_model = YOLO(model_name)
+            self.yolo_model = YOLO(model_path)
             messagebox.showinfo("Info", f"YOLO model updated to {model_name}")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load YOLO model: {e}")
+
+    def update_emotion_model(self, event):
+        """Load selected emotion model"""
+        model_name = self.emotion_model_var.get()
+        model_path = f"models/{model_name}"
+        try:
+            self.emotion_model = self.load_emotion_model(model_path)
+            messagebox.showinfo("Info", f"Emotion model updated to {model_name}")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to load emotion model: {e}")
 
     def load_image(self):
         file_path = filedialog.askopenfilename(filetypes=[("Image files", "*.png *.jpg *.jpeg *.bmp *.tiff")])
@@ -210,7 +241,7 @@ class FaceEmotionGUI(TkinterDnD.Tk):
 
         # Face detection
         results = self.yolo_model(self.original_image, conf=self.confidence_var.get())
-        
+
         face_count = 0
         for i, r in enumerate(results):
             for box in r.boxes:
