@@ -95,8 +95,12 @@ class FaceEmotionGUI(TkinterDnD.Tk):
         self.emotion_model_menu.grid(row=2, column=1, columnspan=2, padx=5, pady=5, sticky=tk.W)
         self.emotion_model_menu.bind("<<ComboboxSelected>>", self.update_emotion_model)
 
-        # --- Row 3: Device Info ---
-        ttk.Label(control_frame, text=f"Device: {self.device}").grid(row=3, column=0, padx=10, pady=5)
+        # --- Row 3: Device Info and Image Name ---
+        ttk.Label(control_frame, text=f"Device: {self.device}").grid(row=3, column=0, padx=10, pady=5, sticky=tk.W)
+
+        ttk.Label(control_frame, text="Image:").grid(row=3, column=1, padx=5, pady=5, sticky=tk.W)
+        self.image_name_label = ttk.Label(control_frame, text="No image loaded", foreground="gray")
+        self.image_name_label.grid(row=3, column=2, columnspan=3, padx=5, pady=5, sticky=tk.W)
 
         # Image display frame
         image_frame = ttk.Frame(main_frame, padding="10")
@@ -207,6 +211,9 @@ class FaceEmotionGUI(TkinterDnD.Tk):
             self.process_btn['state'] = tk.NORMAL
             self.save_btn['state'] = tk.DISABLED
             self.clear_results()
+            # Update image name label
+            import os
+            self.image_name_label.config(text=os.path.basename(file_path), foreground="black")
 
     def drop_image(self, event):
         file_path = event.data
@@ -216,12 +223,16 @@ class FaceEmotionGUI(TkinterDnD.Tk):
             self.process_btn['state'] = tk.NORMAL
             self.save_btn['state'] = tk.DISABLED
             self.clear_results()
+            # Update image name label
+            import os
+            self.image_name_label.config(text=os.path.basename(file_path), foreground="black")
 
     def remove_image(self):
         self.canvas.delete("all")
         self.clear_results()
         self.save_btn['state'] = tk.DISABLED
         self.process_btn['state'] = tk.DISABLED
+        self.image_name_label.config(text="No image loaded", foreground="gray")
         if hasattr(self, 'original_image'):
             del self.original_image
         if hasattr(self, 'processed_image'):
