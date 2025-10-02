@@ -11,20 +11,6 @@ from torchvision import models
 import torch.nn as nn
 from tkinterdnd2 import DND_FILES, TkinterDnD
 
-class EmotionClassifier(nn.Module):
-    def __init__(self, num_classes=8):
-        super(EmotionClassifier, self).__init__()
-        self.efficientnet = models.efficientnet_b4(weights=None)
-        self.efficientnet.classifier = nn.Sequential(
-            nn.Linear(self.efficientnet.classifier[1].in_features, 512),
-            nn.ReLU(),
-            nn.Dropout(0.5),
-            nn.Linear(512, num_classes)
-        )
-
-    def forward(self, x):
-        return self.efficientnet(x)
-
 class FaceEmotionGUI(TkinterDnD.Tk):
     def __init__(self):
         super().__init__()
@@ -90,7 +76,7 @@ class FaceEmotionGUI(TkinterDnD.Tk):
         ttk.Label(control_frame, text="Emotion Model:").grid(row=2, column=0, padx=5, pady=5, sticky=tk.W)
         self.emotion_model_var = tk.StringVar(value="efficientnet_b4_Tuned2_best.pth")
         self.emotion_model_menu = ttk.Combobox(control_frame, textvariable=self.emotion_model_var,
-                                                values=["efficientnet_b4_Tuned2_best.pth", "best_emotion_model.pth"],
+                                                values=["efficientnet_b4_Tuned2_best.pth", "resnet18_emotion_classifier.pth", "best_emotion_model.pth"],
                                                 width=30)
         self.emotion_model_menu.grid(row=2, column=1, columnspan=2, padx=5, pady=5, sticky=tk.W)
         self.emotion_model_menu.bind("<<ComboboxSelected>>", self.update_emotion_model)
@@ -139,27 +125,38 @@ class FaceEmotionGUI(TkinterDnD.Tk):
         self.save_btn.grid(row=2, column=1, sticky=(tk.E), padx=10, pady=10)
 
 
-    def load_emotion_model(self, path):
+    def load_emotion_model(self, model_name, path):
         try:
-            model = EmotionClassifier(num_classes=7) # 7 emotions
-            # Adjust state dict keys if necessary
+            num_classes = 7
+            model = None
+
+            # Decide which model architecture to build
+            if "resnet" in model_name:
+                model = models.resnet18(weights=None)
+                num_ftrs = model.fc.in_features
+                model.fc = nn.Sequential(
+                    nn.Dropout(p=0.5),
+                    nn.Linear(num_ftrs, num_classes)
+                )
+            elif "efficientnet" in model_name:
+                model = models.efficientnet_b4(weights=None)
+                model.classifier = nn.Sequential(
+                    nn.Linear(model.classifier[1].in_features, 512),
+                    nn.ReLU(),
+                    nn.Dropout(0.5),
+                    nn.Linear(512, num_classes)
+                )
+            else:
+                raise ValueError("Unsupported model type in filename. Use 'resnet' or 'efficientnet'.")
+
+            # Load the state dictionary
             state_dict = torch.load(path, map_location=self.device)
-            new_state_dict = {}
-            for k, v in state_dict.items():
-                name = k.replace("module.", "") # remove `module.` prefix if it exists
-                if "efficientnet." not in name:
-                    name = "efficientnet." + name
-                new_state_dict[name] = v
-
-            # Filter out unexpected keys
-            model_dict = model.state_dict()
-            filtered_state_dict = {k: v for k, v in new_state_dict.items() if k in model_dict and v.shape == model_dict[k].shape}
-            model_dict.update(filtered_state_dict)
-            model.load_state_dict(model_dict)
-
+            model.load_state_dict(state_dict)
+            
             model.to(self.device)
             model.eval()
             return model
+
         except FileNotFoundError:
             messagebox.showerror("Error", f"Emotion model not found at {path}")
             self.quit()
@@ -182,7 +179,7 @@ class FaceEmotionGUI(TkinterDnD.Tk):
         """Load the default emotion model on startup"""
         model_name = self.emotion_model_var.get()
         model_path = f"models/{model_name}"
-        self.emotion_model = self.load_emotion_model(model_path)
+        self.emotion_model = self.load_emotion_model(model_name, model_path)
 
     def update_yolo_model(self, event):
         model_name = self.yolo_model_var.get()
@@ -198,7 +195,7 @@ class FaceEmotionGUI(TkinterDnD.Tk):
         model_name = self.emotion_model_var.get()
         model_path = f"models/{model_name}"
         try:
-            self.emotion_model = self.load_emotion_model(model_path)
+            self.emotion_model = self.load_emotion_model(model_name, model_path)
             messagebox.showinfo("Info", f"Emotion model updated to {model_name}")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load emotion model: {e}")
