@@ -19,7 +19,7 @@ class FaceEmotionGUI(TkinterDnD.Tk):
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.yolo_model = YOLO("models/yolov12n-face.pt")
-        self.emotion_labels = ['Angry', 'Disgust', 'Fear', 'Happy', 'Sad', 'Surprise', 'Neutral'] # As per USAGE.md, 7 emotions
+        self.emotion_labels = ['Angry', 'Disgust', 'Fear', 'Happy', 'Sad', 'Surprise', 'Neutral'] # 7 emotions
 
         # Initialize emotion model (will be loaded after widgets setup)
         self.emotion_model = None
@@ -74,9 +74,9 @@ class FaceEmotionGUI(TkinterDnD.Tk):
 
         # --- Row 2: Emotion Model ---
         ttk.Label(control_frame, text="Emotion Model:").grid(row=2, column=0, padx=5, pady=5, sticky=tk.W)
-        self.emotion_model_var = tk.StringVar(value="efficientnet_b4_Tuned2_best.pth")
+        self.emotion_model_var = tk.StringVar(value="resnet18_emotion_classifier.pth")
         self.emotion_model_menu = ttk.Combobox(control_frame, textvariable=self.emotion_model_var,
-                                                values=["efficientnet_b4_Tuned2_best.pth", "resnet18_emotion_classifier.pth", "best_emotion_model.pth"],
+                                                values=["resnet18_emotion_classifier.pth", "efficientnet_b4_Tuned2_best.pth", "best_emotion_model.pth"],
                                                 width=30)
         self.emotion_model_menu.grid(row=2, column=1, columnspan=2, padx=5, pady=5, sticky=tk.W)
         self.emotion_model_menu.bind("<<ComboboxSelected>>", self.update_emotion_model)
@@ -127,32 +127,49 @@ class FaceEmotionGUI(TkinterDnD.Tk):
 
     def load_emotion_model(self, model_name, path):
         try:
-            num_classes = 7
+            num_classes = 7  # Changed to 7 emotions
             model = None
 
             # Decide which model architecture to build
-            if "resnet" in model_name:
+            if "resnet" in model_name.lower():
                 model = models.resnet18(weights=None)
                 num_ftrs = model.fc.in_features
                 model.fc = nn.Sequential(
                     nn.Dropout(p=0.5),
                     nn.Linear(num_ftrs, num_classes)
                 )
-            elif "efficientnet" in model_name:
+            elif "efficientnet" in model_name.lower():
+                # EfficientNet models use 8 classes
+                num_classes_eff = 8
                 model = models.efficientnet_b4(weights=None)
                 model.classifier = nn.Sequential(
                     nn.Linear(model.classifier[1].in_features, 512),
                     nn.ReLU(),
                     nn.Dropout(0.5),
-                    nn.Linear(512, num_classes)
+                    nn.Linear(512, num_classes_eff)
                 )
             else:
-                raise ValueError("Unsupported model type in filename. Use 'resnet' or 'efficientnet'.")
+                # Default to efficientnet for unknown model names (like best_emotion_model.pth)
+                num_classes_eff = 8
+                model = models.efficientnet_b4(weights=None)
+                model.classifier = nn.Sequential(
+                    nn.Linear(model.classifier[1].in_features, 512),
+                    nn.ReLU(),
+                    nn.Dropout(0.5),
+                    nn.Linear(512, num_classes_eff)
+                )
 
             # Load the state dictionary
-            state_dict = torch.load(path, map_location=self.device)
+            checkpoint = torch.load(path, map_location=self.device)
+
+            # Handle different checkpoint formats
+            if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
+                state_dict = checkpoint['model_state_dict']
+            else:
+                state_dict = checkpoint
+
             model.load_state_dict(state_dict)
-            
+
             model.to(self.device)
             model.eval()
             return model
