@@ -26,9 +26,24 @@ transform = transforms.Compose([
     transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 ])
 
-# Global models
+# Global models (lazy-loaded)
 yolo_current = None
 emotion_current = None
+models_loaded = False  # Flag to load once
+
+def ensure_models_loaded(yolo_model_name, emotion_model_name):
+    global yolo_current, emotion_current, models_loaded
+    if models_loaded:
+        return
+    try:
+        yolo_current = YOLO(f"models/{yolo_model_name}")
+        logging.info(f"YOLO model {yolo_model_name} loaded.")
+        emotion_current = load_emotion_model(emotion_model_name)
+        logging.info(f"Emotion model {emotion_model_name} loaded.")
+        models_loaded = True
+    except Exception as e:
+        logging.error(f"Model loading failed: {e}")
+        raise e  # Re-raise to handle in caller
 
 def load_emotion_model(model_name):
     path = f"models/{model_name}"
@@ -77,37 +92,11 @@ def unnormalize(tensor):
     tensor = np.clip(tensor, 0, 1)
     return Image.fromarray((tensor * 255).astype(np.uint8))
 
-# Initial load of default models
-try:
-    yolo_current = YOLO("models/yolov12n-face.pt")
-    logging.info("Default YOLO model loaded successfully.")
-except Exception as e:
-    logging.error(f"Failed to load default YOLO model: {e}")
-
-try:
-    emotion_current = load_emotion_model("resnet18_emotion_classifier.pth")
-    logging.info("Default emotion model loaded successfully.")
-except Exception as e:
-    logging.error(f"Failed to load default emotion model: {e}")
-
 def update_models(yolo_model_name, emotion_model_name):
-    global yolo_current, emotion_current
-    status = ""
-    try:
-        yolo_current = YOLO(f"models/{yolo_model_name}")
-        logging.info(f"YOLO model {yolo_model_name} loaded successfully.")
-    except Exception as e:
-        status += f"Error loading YOLO model: {e}\n"
-        logging.error(f"Error loading YOLO model {yolo_model_name}: {e}")
-    
-    try:
-        emotion_current = load_emotion_model(emotion_model_name)
-        logging.info(f"Emotion model {emotion_model_name} loaded successfully.")
-    except Exception as e:
-        status += f"Error loading emotion model: {e}\n"
-        logging.error(f"Error loading emotion model {emotion_model_name}: {e}")
-    
-    return status if status else "Models loaded successfully."
+    global yolo_current, emotion_current, models_loaded
+    models_loaded = False  # Reset to reload on next process
+    status = "Models will reload on next request."
+    return status
 
 def process_image(image, yolo_model_name, emotion_model_name, confidence):
     global yolo_current, emotion_current
@@ -115,10 +104,9 @@ def process_image(image, yolo_model_name, emotion_model_name, confidence):
     if image is None:
         return None, []
     
-    if yolo_current is None or emotion_current is None:
-        return Image.fromarray(np.array(image)), []
-    
     try:
+        ensure_models_loaded(yolo_model_name, emotion_model_name)  # Lazy load here
+        
         # Convert Gradio image (PIL) to OpenCV
         img_array = np.array(image)
         if img_array.size == 0:
@@ -176,12 +164,9 @@ def process_webcam(frame, yolo_model_name, emotion_model_name, confidence):
         logging.info("Empty frame received")
         return frame
     
-    if yolo_current is None or emotion_current is None:
-        logging.warning("Models not loaded")
-        return frame
-
     try:
-        logging.info("Processing webcam frame")
+        ensure_models_loaded(yolo_model_name, emotion_model_name)  # Lazy load here
+        
         frame_rgb = frame  # Already numpy RGB
         frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
         processed_bgr = frame_bgr.copy()
@@ -216,7 +201,7 @@ def process_webcam(frame, yolo_model_name, emotion_model_name, confidence):
         logging.error(f"Error during webcam processing: {e}")
         return frame_rgb  # Return original on error
 
-# Gradio interface
+# Gradio interface (unchanged)
 with gr.Blocks(title="Face Detection & Emotion Classification") as demo:
     gr.Markdown("Upload an image or use webcam to detect faces and classify emotions.")
     
@@ -225,7 +210,7 @@ with gr.Blocks(title="Face Detection & Emotion Classification") as demo:
         emotion_model = gr.Dropdown(choices=["resnet18_emotion_classifier.pth", "efficientnet_b4_Tuned2_best.pth", "best_emotion_model.pth"], label="Emotion Model", value="resnet18_emotion_classifier.pth")
         confidence = gr.Slider(minimum=0.1, maximum=1.0, value=0.5, label="Confidence Threshold")
     
-    status = gr.Textbox(label="Model Status", value="Default models loaded. Update if changed.")
+    status = gr.Textbox(label="Model Status", value="Models load on first request.")
     
     yolo_model.change(update_models, inputs=[yolo_model, emotion_model], outputs=status)
     emotion_model.change(update_models, inputs=[yolo_model, emotion_model], outputs=status)
@@ -245,7 +230,7 @@ with gr.Blocks(title="Face Detection & Emotion Classification") as demo:
                 process_webcam, 
                 inputs=[webcam_input, yolo_model, emotion_model, confidence], 
                 outputs=[webcam_input],
-                stream_every=0.05, # 50ms
+                stream_every=0.1, 
                 concurrency_limit=10
             )
 

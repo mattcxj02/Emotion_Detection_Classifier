@@ -3,7 +3,5 @@ opencv-python-headless
 ultralytics
 torch
 torchvision
-opencv-python
 Pillow
 numpy
-tkinterdnd2
