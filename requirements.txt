@@ -1,3 +1,5 @@
+gradio
+opencv-python-headless
 ultralytics
 torch
 torchvision
