@@ -230,7 +230,7 @@ with gr.Blocks(title="Face Detection & Emotion Classification") as demo:
                 process_webcam, 
                 inputs=[webcam_input, yolo_model, emotion_model, confidence], 
                 outputs=[webcam_input],
-                stream_every=0.1, 
+                stream_every=0.02, 
                 concurrency_limit=10
             )
 
