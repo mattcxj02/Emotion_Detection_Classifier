@@ -207,7 +207,7 @@ with gr.Blocks(title="Face Detection & Emotion Classification") as demo:
     
     with gr.Row():
         yolo_model = gr.Dropdown(choices=["yolov12n-face.pt", "yolov8n.pt", "yolov8s.pt", "yolov8m.pt"], label="YOLO Model", value="yolov12n-face.pt")
-        emotion_model = gr.Dropdown(choices=["resnet18_emotion_classifier.pth", "efficientnet_b4_Tuned2_best.pth", "best_emotion_model.pth"], label="Emotion Model", value="resnet18_emotion_classifier.pth")
+        emotion_model = gr.Dropdown(choices=["resnet18_emotion_classifier.pth", "efficientnet_b4_Tuned2_best.pth", "best_emotion_model.pth", "combined_resnet18_emotion_classifier.pth"], label="Emotion Model", value="combined_resnet18_emotion_classifier.pth")
         confidence = gr.Slider(minimum=0.1, maximum=1.0, value=0.5, label="Confidence Threshold")
     
     status = gr.Textbox(label="Model Status", value="Models load on first request.")
@@ -230,7 +230,7 @@ with gr.Blocks(title="Face Detection & Emotion Classification") as demo:
                 process_webcam, 
                 inputs=[webcam_input, yolo_model, emotion_model, confidence], 
                 outputs=[webcam_input],
-                stream_every=0.02, 
+                stream_every=0.1, # Adjusted for smoother streaming
                 concurrency_limit=10
             )
 
