@@ -1,8 +1,12 @@
 FROM python:3.12-slim
 
-# Install system deps for OpenCV
+# Install system libs for OpenCV headless
 RUN apt-get update && apt-get install -y \
     libglib2.0-0 \
+    libx11-6 \
+    libxext6 \
+    libsm6 \
+    libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
