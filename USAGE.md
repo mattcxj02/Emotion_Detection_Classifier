@@ -2,7 +2,10 @@
 
 A desktop application that combines YOLOv12 face detection with EfficientNet emotion classification.
 
-## Installation
+## Cloud Deployment Website
+A cloud version of this application is available at: [https://aai3001pr12demo-131604205847.asia-southeast1.run.app](https://aai3001pr12demo-131604205847.asia-southeast1.run.app)
+
+## Installation for Local Use
 
 1. Install required dependencies:
 ```bash
@@ -14,7 +17,7 @@ pip install -r requirements.txt
 models/
 ├── yolov12n-face.pt                    # YOLOv12 face detection model (default)
 ├── yolov8n.pt, yolov8s.pt, yolov8m.pt  # Alternative YOLO models
-├── efficientnet_b4_Tuned2_best.pth     # EfficientNet emotion model (default)
+├── resnet18_emotion_classifier.pth     # ResNet emotion model (default)
 └── best_emotion_model.pth              # Alternative emotion model
 ```
 

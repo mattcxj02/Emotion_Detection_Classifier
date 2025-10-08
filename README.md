@@ -25,4 +25,12 @@ pip install -r requirements.txt
 python main.py
 ```
 
+## Results and Analysis
+![F1-Scores](asset/f1-score.png)
+
+![training_curve](asset/training.png)
+
+## References/Datasets
+Abbas, S. (2024). Expression in the Wild (EXP-W) Dataset. Kaggle. Retrieved from https://www.kaggle.com/datasets/shahzadabbas/expression-in-the-wild-expw-dataset
+Shazida, M. J. (2024). AffectNet. Kaggle. Retrieved from https://www.kaggle.com/datasets/mstjebashazida/affectnet
 See [USAGE.md](USAGE.md) for detailed instructions.
