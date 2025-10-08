@@ -13,6 +13,9 @@ A desktop application that combines YOLOv12 face detection with EfficientNet-B4 
 ## Model Architecture
 ![Model Architecture](asset/model_arch.jpg)
 
+## Cloud Deployment Website
+A cloud version of this application is available at: [https://aai3001pr12demo-131604205847.asia-southeast1.run.app](https://aai3001pr12demo-131604205847.asia-southeast1.run.app)
+
 ## Installation
 
 ```bash
