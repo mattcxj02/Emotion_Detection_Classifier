@@ -5,7 +5,7 @@ A desktop application that combines YOLOv12 face detection with EfficientNet-B4 
 ## Features
 
 - **Face Detection**: Uses YOLOv12-Face model for accurate face detection
-- **Emotion Classification**: EfficientNet-B4 CNN classifies emotions into 7 categories
+- **Emotion Classification**: ResNet CNN classifies emotions into 7 categories
 - **Multiple Models**: Switch between different YOLO and emotion classification models
 - **Interactive GUI**: Tkinter-based interface with drag-and-drop support
 - **Real-time Processing**: Adjustable confidence threshold for detection sensitivity
