@@ -203,7 +203,7 @@ def process_webcam(frame, yolo_model_name, emotion_model_name, confidence):
 
 # Gradio interface (unchanged)
 with gr.Blocks(title="Face Detection & Emotion Classification") as demo:
-    gr.Markdown("Upload an image or use webcam to detect faces and classify emotions.")
+    gr.Markdown("Upload an image or use webcam to detect faces and classify emotions. V2")
     
     with gr.Row():
         yolo_model = gr.Dropdown(choices=["yolov12n-face.pt", "yolov8n.pt", "yolov8s.pt", "yolov8m.pt"], label="YOLO Model", value="yolov12n-face.pt")
@@ -230,7 +230,7 @@ with gr.Blocks(title="Face Detection & Emotion Classification") as demo:
                 process_webcam, 
                 inputs=[webcam_input, yolo_model, emotion_model, confidence], 
                 outputs=[webcam_input],
-                stream_every=0.1, # Adjusted for smoother streaming
+                stream_every=0.05, # Adjusted for smoother streaming
                 concurrency_limit=10
             )
 
