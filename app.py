@@ -19,6 +19,17 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # Emotion labels (7 emotions)
 emotion_labels = ['Angry', 'Disgust', 'Fear', 'Happy', 'Sad', 'Surprise', 'Neutral']
 
+# Emoji mapping (dict of emotion to PNG filename)
+emoji_map = {
+    'Angry': 'angry.png',
+    'Disgust': 'disgust.png',
+    'Fear': 'fear.png',
+    'Happy': 'happy.png',
+    'Sad': 'sad.png',
+    'Surprise': 'surprise.png',
+    'Neutral': 'neutral.png'
+}
+
 # Transforms
 transform = transforms.Compose([
     transforms.Resize((224, 224)),
@@ -92,6 +103,30 @@ def unnormalize(tensor):
     tensor = np.clip(tensor, 0, 1)
     return Image.fromarray((tensor * 255).astype(np.uint8))
 
+def blend_emoji_on_face(image_bgr, x1, y1, x2, y2, emoji_resized):
+    """
+    Blend transparent emoji over the face region in the BGR image.
+    Uses simple alpha blending with the bounding box as mask.
+    """
+    if emoji_resized is None:
+        return image_bgr
+    
+    # Create mask from bounding box (simple rectangular mask)
+    mask = np.zeros((y2 - y1, x2 - x1), dtype=np.uint8)
+    mask.fill(255)  # Full mask for the box
+    
+    # Alpha channel handling
+    alpha = emoji_resized[:, :, 3] / 255.0 if emoji_resized.shape[2] == 4 else np.ones((y2 - y1, x2 - x1), dtype=np.float32)
+    
+    # Blend each channel (BGR)
+    for c in range(3):
+        roi = image_bgr[y1:y2, x1:x2, c]
+        emoji_channel = emoji_resized[:, :, c] * alpha
+        blended = (roi * (1 - alpha) + emoji_channel).astype(np.uint8)
+        image_bgr[y1:y2, x1:x2, c] = blended
+    
+    return image_bgr
+
 def update_models(yolo_model_name, emotion_model_name):
     global yolo_current, emotion_current, models_loaded
     models_loaded = False  # Reset to reload on next process
@@ -134,6 +169,19 @@ def process_image(image, yolo_model_name, emotion_model_name, confidence):
                     output = emotion_current(input_tensor.unsqueeze(0).to(device))
                     _, predicted = torch.max(output, 1)
                     emotion = emotion_labels[predicted.item() % len(emotion_labels)]  # Adjust index if num_classes > 7
+
+                # Load and resize emoji to face size
+                emoji_path = f"emojis/{emoji_map.get(emotion, 'neutral.png')}"  # Fallback to neutral
+                if os.path.exists(emoji_path):
+                    emoji_img = cv2.imread(emoji_path, cv2.IMREAD_UNCHANGED)  # Preserve alpha
+                    h, w = y2 - y1, x2 - x1
+                    emoji_resized = cv2.resize(emoji_img, (w, h))
+                else:
+                    emoji_resized = None
+                    logging.warning(f"Emoji not found: {emoji_path}")
+
+                # Blend emoji on the face
+                processed_bgr = blend_emoji_on_face(processed_bgr, x1, y1, x2, y2, emoji_resized)
 
                 # Create preview
                 preview_img = unnormalize(input_tensor).resize((112, 112))
@@ -187,6 +235,18 @@ def process_webcam(frame, yolo_model_name, emotion_model_name, confidence):
                     _, predicted = torch.max(output, 1)
                 emotion = emotion_labels[predicted.item() % len(emotion_labels)]  # Adjust index if num_classes > 7
 
+                # Load and resize emoji to face size
+                emoji_path = f"emojis/{emoji_map.get(emotion, 'neutral.png')}"
+                if os.path.exists(emoji_path):
+                    emoji_img = cv2.imread(emoji_path, cv2.IMREAD_UNCHANGED)
+                    h, w = y2 - y1, x2 - x1
+                    emoji_resized = cv2.resize(emoji_img, (w, h))
+                else:
+                    emoji_resized = None
+
+                # Blend emoji on the face
+                processed_bgr = blend_emoji_on_face(processed_bgr, x1, y1, x2, y2, emoji_resized)
+
                 # Draw on BGR
                 cv2.rectangle(processed_bgr, (x1, y1), (x2, y2), (0, 255, 0), 2)
                 cv2.putText(processed_bgr, emotion, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
@@ -203,7 +263,7 @@ def process_webcam(frame, yolo_model_name, emotion_model_name, confidence):
 
 # Gradio interface (unchanged)
 with gr.Blocks(title="Face Detection & Emotion Classification") as demo:
-    gr.Markdown("Upload an image or use webcam to detect faces and classify emotions. V2")
+    gr.Markdown("Upload an image or use webcam to detect faces and classify emotions.")
     
     with gr.Row():
         yolo_model = gr.Dropdown(choices=["yolov12n-face.pt", "yolov8n.pt", "yolov8s.pt", "yolov8m.pt"], label="YOLO Model", value="yolov12n-face.pt")
@@ -230,14 +290,14 @@ with gr.Blocks(title="Face Detection & Emotion Classification") as demo:
                 process_webcam, 
                 inputs=[webcam_input, yolo_model, emotion_model, confidence], 
                 outputs=[webcam_input],
-                stream_every=0.05, # Adjusted for smoother streaming
+                stream_every=0.1, # Adjusted for smoother streaming
                 concurrency_limit=10
             )
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
     demo.launch(
-        server_name="0.0.0.0",
+        server_name="localhost",
         server_port=port,
         share=False,  # Disable public sharing in cloud
         quiet=False,  # Enable logs for debugging
