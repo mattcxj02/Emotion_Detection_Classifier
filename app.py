@@ -9,6 +9,7 @@ from torchvision import models
 import torch.nn as nn
 import os
 import logging
+from torchvision.models import regnet_y_1_6gf, RegNet_Y_1_6GF_Weights, ResNet18_Weights, EfficientNet_B4_Weights
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -58,29 +59,34 @@ def ensure_models_loaded(yolo_model_name, emotion_model_name):
 
 def load_emotion_model(model_name):
     path = f"models/{model_name}"
-    num_classes = 7  # Default for most models
+    num_classes = 7
     model = None
 
     if "resnet" in model_name.lower():
-        model = models.resnet18(weights=None)
+        model = models.resnet18(weights=ResNet18_Weights.IMAGENET1K_V1)
         num_ftrs = model.fc.in_features
         model.fc = nn.Sequential(
             nn.Dropout(p=0.5),
             nn.Linear(num_ftrs, num_classes)
         )
     elif "efficientnet" in model_name.lower():
-        num_classes = 8  # Adjust if needed for your specific model
-        model = models.efficientnet_b4(weights=None)
+        model = models.efficientnet_b4(weights=EfficientNet_B4_Weights.IMAGENET1K_V1)
         model.classifier = nn.Sequential(
             nn.Linear(model.classifier[1].in_features, 512),
             nn.ReLU(),
             nn.Dropout(0.5),
             nn.Linear(512, num_classes)
         )
+    elif "regnet" in model_name.lower():
+        model = models.regnet_y_1_6gf(weights=RegNet_Y_1_6GF_Weights.IMAGENET1K_V2)
+        num_ftrs = model.fc.in_features
+        model.fc = nn.Sequential(
+            nn.Dropout(p=0.5),
+            nn.Linear(num_ftrs, num_classes)
+        )
     else:
         # Default to efficientnet
-        num_classes = 8
-        model = models.efficientnet_b4(weights=None)
+        model = models.efficientnet_b4(weights=EfficientNet_B4_Weights.IMAGENET1K_V1)
         model.classifier = nn.Sequential(
             nn.Linear(model.classifier[1].in_features, 512),
             nn.ReLU(),
@@ -267,7 +273,7 @@ with gr.Blocks(title="Face Detection & Emotion Classification") as demo:
     
     with gr.Row():
         yolo_model = gr.Dropdown(choices=["yolov12n-face.pt", "yolov8n.pt", "yolov8s.pt", "yolov8m.pt"], label="YOLO Model", value="yolov12n-face.pt")
-        emotion_model = gr.Dropdown(choices=["resnet18_emotion_classifier.pth", "efficientnet_b4_Tuned2_best.pth", "best_emotion_model.pth", "combined_resnet18_emotion_classifier.pth"], label="Emotion Model", value="combined_resnet18_emotion_classifier.pth")
+        emotion_model = gr.Dropdown(choices=["resnet18_emotion_classifier.pth", "combined_resnet18_emotion_classifier.pth", "combine_regnetY16GF_emotion_classifier.pth"], label="Emotion Model", value="combine_regnetY16GF_emotion_classifier.pth")
         confidence = gr.Slider(minimum=0.1, maximum=1.0, value=0.5, label="Confidence Threshold")
     
     status = gr.Textbox(label="Model Status", value="Models load on first request.")
