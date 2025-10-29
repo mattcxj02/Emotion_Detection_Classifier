@@ -9,7 +9,12 @@ from torchvision import models
 import torch.nn as nn
 import os
 import logging
+import ssl
+import certifi
 from torchvision.models import regnet_y_1_6gf, RegNet_Y_1_6GF_Weights, ResNet18_Weights, EfficientNet_B4_Weights
+
+# Fix SSL certificate verification issues
+ssl._create_default_https_context = ssl._create_unverified_context
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -265,7 +270,7 @@ def process_webcam(frame, yolo_model_name, emotion_model_name, confidence):
     
     except Exception as e:
         logging.error(f"Error during webcam processing: {e}")
-        return frame_rgb  # Return original on error
+        return frame  # Return original on error
 
 # Gradio interface (unchanged)
 with gr.Blocks(title="Face Detection & Emotion Classification") as demo:
