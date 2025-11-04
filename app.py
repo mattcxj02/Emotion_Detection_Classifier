@@ -291,6 +291,44 @@ def blend_emoji_on_face(image_bgr, x1, y1, x2, y2, emoji_resized):
     
     return image_bgr
 
+def blur_face_on_image(image_bgr, x1, y1, x2, y2, strength=23):
+    """
+    Blur the face region in-place on the BGR image.
+
+    Args:
+        image_bgr: numpy BGR image
+        x1,y1,x2,y2: bounding box coordinates
+        strength: odd integer >=1 controlling Gaussian kernel size (larger -> more blur)
+
+    Returns:
+        image_bgr with the face region blurred
+    """
+    # Ensure valid box
+    h = y2 - y1
+    w = x2 - x1
+    if h <= 0 or w <= 0:
+        return image_bgr
+
+    # Make kernel size odd and at least 1
+    k = max(1, int(strength))
+    if k % 2 == 0:
+        k += 1
+
+    # Clip kernel to avoid being larger than region
+    k = min(k, max(1, min(w // 2 * 2 + 1, h // 2 * 2 + 1)))
+
+    # Extract ROI and blur
+    roi = image_bgr[y1:y2, x1:x2]
+    try:
+        blurred = cv2.GaussianBlur(roi, (k, k), 0)
+    except Exception:
+        # Fallback to simple resize-based pixelation if Gaussian fails
+        small = cv2.resize(roi, (max(1, w // 10), max(1, h // 10)), interpolation=cv2.INTER_LINEAR)
+        blurred = cv2.resize(small, (w, h), interpolation=cv2.INTER_NEAREST)
+
+    image_bgr[y1:y2, x1:x2] = blurred
+    return image_bgr
+
 def update_models(yolo_model_name, emotion_model_name):
     global yolo_current, emotion_current, models_loaded
     models_loaded = False  # Reset to reload on next process
@@ -304,7 +342,7 @@ def update_vlm_status(enabled, threshold):
     else:
         return "✗ VLM Disabled - Using only base emotion classifier"
 
-def process_image(image, yolo_model_name, emotion_model_name, confidence, vlm_enabled, vlm_threshold):
+def process_image(image, yolo_model_name, emotion_model_name, confidence, vlm_enabled, vlm_threshold, blur_enabled=False, blur_strength=23):
     global yolo_current, emotion_current
 
     logging.info(f"process_image called: vlm_enabled={vlm_enabled}, vlm_threshold={vlm_threshold}")
@@ -351,18 +389,24 @@ def process_image(image, yolo_model_name, emotion_model_name, confidence, vlm_en
                 emotion, vlm_used = validate_emotion_with_vlm(pil_face, emotion, confidence_value, vlm_threshold, vlm_enabled)
                 logging.info(f"VLM validation result: emotion={emotion}, vlm_used={vlm_used}")
 
-                # Load and resize emoji to face size
-                emoji_path = f"emojis/{emoji_map.get(emotion, 'neutral.png')}"  # Fallback to neutral
-                if os.path.exists(emoji_path):
-                    emoji_img = cv2.imread(emoji_path, cv2.IMREAD_UNCHANGED)  # Preserve alpha
-                    h, w = y2 - y1, x2 - x1
-                    emoji_resized = cv2.resize(emoji_img, (w, h))
-                else:
+                # Either blur the face or load and blend emoji to the face
+                if blur_enabled:
+                    # Apply blur to face region
+                    processed_bgr = blur_face_on_image(processed_bgr, x1, y1, x2, y2, strength=blur_strength)
                     emoji_resized = None
-                    logging.warning(f"Emoji not found: {emoji_path}")
+                else:
+                    # Load and resize emoji to face size
+                    emoji_path = f"emojis/{emoji_map.get(emotion, 'neutral.png')}"  # Fallback to neutral
+                    if os.path.exists(emoji_path):
+                        emoji_img = cv2.imread(emoji_path, cv2.IMREAD_UNCHANGED)  # Preserve alpha
+                        h, w = y2 - y1, x2 - x1
+                        emoji_resized = cv2.resize(emoji_img, (w, h))
+                    else:
+                        emoji_resized = None
+                        logging.warning(f"Emoji not found: {emoji_path}")
 
-                # Blend emoji on the face
-                processed_bgr = blend_emoji_on_face(processed_bgr, x1, y1, x2, y2, emoji_resized)
+                    # Blend emoji on the face
+                    processed_bgr = blend_emoji_on_face(processed_bgr, x1, y1, x2, y2, emoji_resized)
 
                 # Create preview
                 preview_img = unnormalize(input_tensor).resize((112, 112))
@@ -389,7 +433,7 @@ def process_image(image, yolo_model_name, emotion_model_name, confidence, vlm_en
         logging.error(f"Error during image processing: {e}")
         return Image.fromarray(np.array(image)), []
 
-def process_webcam(frame, yolo_model_name, emotion_model_name, confidence, vlm_enabled, vlm_threshold):
+def process_webcam(frame, yolo_model_name, emotion_model_name, confidence, vlm_enabled, vlm_threshold, blur_enabled=False, blur_strength=23):
     global yolo_current, emotion_current
 
     # Log parameters (only first time to avoid spam)
@@ -431,17 +475,23 @@ def process_webcam(frame, yolo_model_name, emotion_model_name, confidence, vlm_e
                 vlm_used = False
                 emotion, vlm_used = validate_emotion_with_vlm(pil_face, emotion, confidence_value, vlm_threshold, vlm_enabled)
 
-                # Load and resize emoji to face size
-                emoji_path = f"emojis/{emoji_map.get(emotion, 'neutral.png')}"
-                if os.path.exists(emoji_path):
-                    emoji_img = cv2.imread(emoji_path, cv2.IMREAD_UNCHANGED)
-                    h, w = y2 - y1, x2 - x1
-                    emoji_resized = cv2.resize(emoji_img, (w, h))
-                else:
+                # Either blur the face or load and blend emoji to the face
+                if blur_enabled:
+                    processed_bgr = blur_face_on_image(processed_bgr, x1, y1, x2, y2, strength=blur_strength)
                     emoji_resized = None
+                else:
+                    # Load and resize emoji to face size
+                    emoji_path = f"emojis/{emoji_map.get(emotion, 'neutral.png')}"
+                    if os.path.exists(emoji_path):
+                        emoji_img = cv2.imread(emoji_path, cv2.IMREAD_UNCHANGED)
+                        h, w = y2 - y1, x2 - x1
+                        emoji_resized = cv2.resize(emoji_img, (w, h))
+                    else:
+                        emoji_resized = None
 
-                # Blend emoji on the face
-                processed_bgr = blend_emoji_on_face(processed_bgr, x1, y1, x2, y2, emoji_resized)
+
+                    # Blend emoji on the face
+                    processed_bgr = blend_emoji_on_face(processed_bgr, x1, y1, x2, y2, emoji_resized)
 
                 # Draw on BGR
                 box_color = (255, 165, 0) if vlm_used else (0, 255, 0)  # Orange if VLM used, green otherwise
@@ -473,6 +523,9 @@ with gr.Blocks(title="Face Detection & Emotion Classification") as demo:
     with gr.Row():
         vlm_enabled = gr.Checkbox(label="Enable VLM Validation", value=True, info="Use Qwen3-VL to validate low-confidence predictions (updates in real-time)")
         vlm_threshold = gr.Slider(minimum=0.0, maximum=1.0, value=0.7, step=0.05, label="VLM Validation Threshold (use VLM when emotion confidence < threshold)")
+        # Blurring controls
+        blur_enabled = gr.Checkbox(label="Blur Faces instead of Emojis", value=False, info="When enabled, detected faces will be blurred instead of showing emojis")
+        blur_strength = gr.Slider(minimum=1, maximum=101, step=2, value=23, label="Blur Strength (odd kernel size)")
 
     with gr.Row():
         status = gr.Textbox(label="Model Status", value="Models load on first request.")
@@ -492,13 +545,13 @@ with gr.Blocks(title="Face Detection & Emotion Classification") as demo:
             with gr.Row():
                 image_output = gr.Image(label="Processed Image")
             gallery_output = gr.Gallery(label="Face Previews", show_label=True, columns=3, height="auto")
-            process_btn.click(process_image, inputs=[image_input, yolo_model, emotion_model, confidence, vlm_enabled, vlm_threshold], outputs=[image_output, gallery_output])
+            process_btn.click(process_image, inputs=[image_input, yolo_model, emotion_model, confidence, vlm_enabled, vlm_threshold, blur_enabled, blur_strength], outputs=[image_output, gallery_output])
         
         with gr.Tab("Webcam"):
             webcam_input = gr.Image(sources=["webcam"], type="numpy", streaming=True, label="Webcam Feed")
             webcam_input.stream(
                 process_webcam,
-                inputs=[webcam_input, yolo_model, emotion_model, confidence, vlm_enabled, vlm_threshold],
+                inputs=[webcam_input, yolo_model, emotion_model, confidence, vlm_enabled, vlm_threshold, blur_enabled, blur_strength],
                 outputs=[webcam_input],
                 stream_every=0.05, # Adjusted for smoother streaming
                 concurrency_limit=10
