@@ -267,43 +267,95 @@ def unnormalize(tensor):
     tensor = np.clip(tensor, 0, 1)
     return Image.fromarray((tensor * 255).astype(np.uint8))
 
-def blend_emoji_on_face(image_bgr, x1, y1, x2, y2, emoji_resized):
+def get_mask_bbox(mask_full, padding=5):
     """
-    Blend transparent emoji over the face region in the BGR image.
-    Uses simple alpha blending with the bounding box as mask.
+    Compute a tight bounding box from the segmentation mask.
+    
+    Args:
+        mask_full: Full-size segmentation mask (H x W)
+        padding: Optional padding to add around the mask bbox
+        
+    Returns:
+        tuple: (x1, y1, x2, y2) or None if mask is invalid
     """
-    if emoji_resized is None:
+    try:
+        rows, cols = np.where(mask_full > 0.5)
+        if len(rows) == 0 or len(cols) == 0:
+            return None
+            
+        y1 = max(0, int(rows.min()) - padding)
+        y2 = min(mask_full.shape[0], int(rows.max()) + padding)
+        x1 = max(0, int(cols.min()) - padding)
+        x2 = min(mask_full.shape[1], int(cols.max()) + padding)
+        
+        # Validate bbox
+        if y2 <= y1 or x2 <= x1:
+            return None
+            
+        return (x1, y1, x2, y2)
+    except Exception as e:
+        logging.warning(f"Failed to compute mask bbox: {e}")
+        return None
+
+def blend_emoji_on_face(image_bgr, x1, y1, x2, y2, emoji_img, mask_full=None, use_black=False):
+    """
+    Replace segmented face pixels with black color if use_black=True, otherwise blend emoji.
+    """
+    if use_black and mask_full is not None:
+        # Simple approach: set all pixels where mask > 0.5 to black
+        try:
+            black_mask = (mask_full > 0.5).astype(np.uint8)
+            image_bgr[black_mask == 1] = [0, 0, 0]  # Set to black (BGR)
+            return image_bgr
+        except Exception as e:
+            logging.warning(f"Failed to apply black mask: {e}")
+            return image_bgr
+    
+    # Original emoji blending logic
+    h = y2 - y1
+    w = x2 - x1
+    if h <= 0 or w <= 0 or emoji_img is None:
         return image_bgr
-    
-    # Create mask from bounding box (simple rectangular mask)
-    mask = np.zeros((y2 - y1, x2 - x1), dtype=np.uint8)
-    mask.fill(255)  # Full mask for the box
-    
-    # Alpha channel handling
-    alpha = emoji_resized[:, :, 3] / 255.0 if emoji_resized.shape[2] == 4 else np.ones((y2 - y1, x2 - x1), dtype=np.float32)
-    
-    # Blend each channel (BGR)
-    for c in range(3):
-        roi = image_bgr[y1:y2, x1:x2, c]
-        emoji_channel = emoji_resized[:, :, c] * alpha
-        blended = (roi * (1 - alpha) + emoji_channel).astype(np.uint8)
-        image_bgr[y1:y2, x1:x2, c] = blended
-    
+
+    # Resize emoji to fit the bounding box
+    emoji_resized = cv2.resize(emoji_img, (w, h))
+
+    # Get alpha from emoji if present
+    if emoji_resized.shape[2] == 4:
+        emoji_alpha = emoji_resized[:, :, 3] / 255.0
+        emoji_resized = emoji_resized[:, :, :3]
+    else:
+        emoji_alpha = np.ones((h, w), dtype=np.float32)
+
+    # Get mask for blending
+    if mask_full is not None:
+        # Ensure mask_crop dimensions match the region dimensions
+        try:
+            mask_crop = mask_full[y1:y2, x1:x2].astype(np.float32)
+            # Resize mask crop if dimensions don't match (due to rounding errors)
+            if mask_crop.shape[0] != h or mask_crop.shape[1] != w:
+                mask_crop = cv2.resize(mask_crop, (w, h))
+        except Exception as e:
+            logging.warning(f"Mask crop failed: {e}, using full region")
+            mask_crop = np.ones((h, w), dtype=np.float32)
+    else:
+        mask_crop = np.ones((h, w), dtype=np.float32)
+
+    # Combine emoji alpha with segmentation mask
+    alpha = emoji_alpha * mask_crop
+    alpha = np.expand_dims(alpha, axis=2)  # Add channel dimension for broadcasting
+
+    # Blend all channels at once using vectorized operations
+    roi = image_bgr[y1:y2, x1:x2]
+    blended = (roi * (1 - alpha) + emoji_resized * alpha).astype(np.uint8)
+    image_bgr[y1:y2, x1:x2] = blended
+
     return image_bgr
 
-def blur_face_on_image(image_bgr, x1, y1, x2, y2, strength=23):
+def blur_face_on_image(image_bgr, x1, y1, x2, y2, strength=23, mask_full=None):
     """
-    Blur the face region in-place on the BGR image.
-
-    Args:
-        image_bgr: numpy BGR image
-        x1,y1,x2,y2: bounding box coordinates
-        strength: odd integer >=1 controlling Gaussian kernel size (larger -> more blur)
-
-    Returns:
-        image_bgr with the face region blurred
+    Blur the face region in-place on the BGR image, using the segmentation mask if available.
     """
-    # Ensure valid box
     h = y2 - y1
     w = x2 - x1
     if h <= 0 or w <= 0:
@@ -313,25 +365,37 @@ def blur_face_on_image(image_bgr, x1, y1, x2, y2, strength=23):
     k = max(1, int(strength))
     if k % 2 == 0:
         k += 1
-
-    # Clip kernel to avoid being larger than region
-    k = min(k, max(1, min(w // 2 * 2 + 1, h // 2 * 2 + 1)))
+    k = min(k, min(w // 2 * 2 + 1, h // 2 * 2 + 1))
 
     # Extract ROI and blur
     roi = image_bgr[y1:y2, x1:x2]
     try:
         blurred = cv2.GaussianBlur(roi, (k, k), 0)
     except Exception:
-        # Fallback to simple resize-based pixelation if Gaussian fails
+        # Fallback to resize-based blur
         small = cv2.resize(roi, (max(1, w // 10), max(1, h // 10)), interpolation=cv2.INTER_LINEAR)
         blurred = cv2.resize(small, (w, h), interpolation=cv2.INTER_NEAREST)
 
-    image_bgr[y1:y2, x1:x2] = blurred
+    if mask_full is None:
+        image_bgr[y1:y2, x1:x2] = blurred
+    else:
+        try:
+            mask_crop = mask_full[y1:y2, x1:x2].astype(np.float32)
+            # Resize mask crop if dimensions don't match
+            if mask_crop.shape[0] != h or mask_crop.shape[1] != w:
+                mask_crop = cv2.resize(mask_crop, (w, h))
+            mask_crop = np.expand_dims(mask_crop, axis=2)  # Add channel dimension
+            blended = (roi * (1 - mask_crop) + blurred * mask_crop).astype(np.uint8)
+            image_bgr[y1:y2, x1:x2] = blended
+        except Exception as e:
+            logging.warning(f"Mask-based blur failed: {e}, using full region")
+            image_bgr[y1:y2, x1:x2] = blurred
+
     return image_bgr
 
 def update_models(yolo_model_name, emotion_model_name):
     global yolo_current, emotion_current, models_loaded
-    models_loaded = False  # Reset to reload on next process
+    models_loaded = False  # Reset to reload on next request
     status = "Models will reload on next request."
     return status
 
@@ -368,10 +432,25 @@ def process_image(image, yolo_model_name, emotion_model_name, confidence, vlm_en
         face_count = 0
 
         for r in results:
-            for box in r.boxes:
+            has_masks = r.masks is not None
+            for i, box in enumerate(r.boxes):
                 face_count += 1
-                x1, y1, x2, y2 = map(int, box.xyxy[0])
-                face = frame_rgb[y1:y2, x1:x2]
+                # Original YOLO bounding box for detection
+                x1_det, y1_det, x2_det, y2_det = map(int, box.xyxy[0])
+                
+                # Get mask if available and resize to image dimensions
+                mask_full = None
+                mask_bbox = None
+                if has_masks:
+                    mask_data = r.masks.data[i].cpu().numpy()
+                    # Resize mask to match image dimensions
+                    mask_full = cv2.resize(mask_data, (frame_rgb.shape[1], frame_rgb.shape[0]))
+                    # Compute tight bounding box from mask
+                    mask_bbox = get_mask_bbox(mask_full, padding=5)
+                    logging.info(f"Face {face_count}: YOLO box=({x1_det},{y1_det},{x2_det},{y2_det}), Mask box={mask_bbox}")
+
+                # STEP 1: Emotion Classification (use original YOLO box for cropping)
+                face = frame_rgb[y1_det:y2_det, x1_det:x2_det]
 
                 # Emotion classification
                 pil_face = Image.fromarray(face)
@@ -389,36 +468,45 @@ def process_image(image, yolo_model_name, emotion_model_name, confidence, vlm_en
                 emotion, vlm_used = validate_emotion_with_vlm(pil_face, emotion, confidence_value, vlm_threshold, vlm_enabled)
                 logging.info(f"VLM validation result: emotion={emotion}, vlm_used={vlm_used}")
 
-                # Either blur the face or load and blend emoji to the face
-                if blur_enabled:
-                    # Apply blur to face region
-                    processed_bgr = blur_face_on_image(processed_bgr, x1, y1, x2, y2, strength=blur_strength)
-                    emoji_resized = None
+                # STEP 2: Emoji/Blur Overlay (use mask-based box if available, otherwise fall back to YOLO box)
+                overlay_x1, overlay_y1, overlay_x2, overlay_y2 = (x1_det, y1_det, x2_det, y2_det)
+                if mask_bbox is not None:
+                    overlay_x1, overlay_y1, overlay_x2, overlay_y2 = mask_bbox
+                    logging.info(f"Using mask-based box for overlay: {mask_bbox}")
                 else:
-                    # Load and resize emoji to face size
-                    emoji_path = f"emojis/{emoji_map.get(emotion, 'neutral.png')}"  # Fallback to neutral
-                    if os.path.exists(emoji_path):
-                        emoji_img = cv2.imread(emoji_path, cv2.IMREAD_UNCHANGED)  # Preserve alpha
-                        h, w = y2 - y1, x2 - x1
-                        emoji_resized = cv2.resize(emoji_img, (w, h))
+                    logging.info(f"No valid mask bbox, using YOLO box for overlay")
+
+                # Check if using segmentation model
+                use_segmentation_black = "seg" in yolo_model_name.lower()
+
+                # Either blur the face or apply emoji/black overlay
+                if blur_enabled:
+                    processed_bgr = blur_face_on_image(processed_bgr, overlay_x1, overlay_y1, overlay_x2, overlay_y2, blur_strength, mask_full)
+                else:
+                    if use_segmentation_black:
+                        # Black out the segmented face pixels (no emoji needed)
+                        processed_bgr = blend_emoji_on_face(processed_bgr, overlay_x1, overlay_y1, overlay_x2, overlay_y2, None, mask_full, use_black=True)
                     else:
-                        emoji_resized = None
-                        logging.warning(f"Emoji not found: {emoji_path}")
+                        # Load emoji and blend normally
+                        emoji_path = f"emojis/{emoji_map.get(emotion, 'neutral.png')}"
+                        if os.path.exists(emoji_path):
+                            emoji_img = cv2.imread(emoji_path, cv2.IMREAD_UNCHANGED)
+                        else:
+                            emoji_img = None
+                            logging.warning(f"Emoji not found: {emoji_path}")
+                        processed_bgr = blend_emoji_on_face(processed_bgr, overlay_x1, overlay_y1, overlay_x2, overlay_y2, emoji_img, mask_full, use_black=False)
 
-                    # Blend emoji on the face
-                    processed_bgr = blend_emoji_on_face(processed_bgr, x1, y1, x2, y2, emoji_resized)
-
-                # Create preview
+                # STEP 3: Create preview and draw bounding box (use original YOLO box for consistency)
                 preview_img = unnormalize(input_tensor).resize((112, 112))
                 vlm_indicator = " [VLM]" if vlm_used else ""
                 caption = f"Face {face_count}: {emotion}{vlm_indicator} (Conf: {confidence_value:.2f}, Det: {box.conf[0]:.2f})"
                 face_previews.append((preview_img, caption))
 
-                # Draw on BGR image
+                # Draw on BGR image (use YOLO box for detection visualization)
                 box_color = (255, 165, 0) if vlm_used else (0, 255, 0)  # Orange if VLM used, green otherwise
-                cv2.rectangle(processed_bgr, (x1, y1), (x2, y2), box_color, 2)
+                cv2.rectangle(processed_bgr, (x1_det, y1_det), (x2_det, y2_det), box_color, 2)
                 label = f"{emotion}{vlm_indicator}"
-                cv2.putText(processed_bgr, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, box_color, 2)
+                cv2.putText(processed_bgr, label, (x1_det, y1_det - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, box_color, 2)
 
         # Convert back to RGB for output
         processed_rgb = cv2.cvtColor(processed_bgr, cv2.COLOR_BGR2RGB)
@@ -456,9 +544,21 @@ def process_webcam(frame, yolo_model_name, emotion_model_name, confidence, vlm_e
         results = yolo_current(frame_rgb, conf=confidence)
 
         for r in results:
-            for box in r.boxes:
-                x1, y1, x2, y2 = map(int, box.xyxy[0])
-                face = frame_rgb[y1:y2, x1:x2]
+            has_masks = r.masks is not None
+            for i, box in enumerate(r.boxes):
+                # Original YOLO bounding box for detection
+                x1_det, y1_det, x2_det, y2_det = map(int, box.xyxy[0])
+                
+                # Get mask if available and resize to image dimensions
+                mask_full = None
+                mask_bbox = None
+                if has_masks:
+                    mask_data = r.masks.data[i].cpu().numpy()
+                    mask_full = cv2.resize(mask_data, (frame_rgb.shape[1], frame_rgb.shape[0]))
+                    mask_bbox = get_mask_bbox(mask_full, padding=5)
+
+                # STEP 1: Emotion Classification (use original YOLO box)
+                face = frame_rgb[y1_det:y2_det, x1_det:x2_det]
 
                 # Emotion classification
                 pil_face = Image.fromarray(face)
@@ -474,30 +574,38 @@ def process_webcam(frame, yolo_model_name, emotion_model_name, confidence, vlm_e
                 # Note: VLM may slow down real-time processing, but checkbox allows toggling
                 vlm_used = False
                 emotion, vlm_used = validate_emotion_with_vlm(pil_face, emotion, confidence_value, vlm_threshold, vlm_enabled)
+                vlm_indicator = " [VLM]" if vlm_used else ""
 
-                # Either blur the face or load and blend emoji to the face
+                # STEP 2: Emoji/Blur Overlay (use mask-based box if available)
+                overlay_x1, overlay_y1, overlay_x2, overlay_y2 = (x1_det, y1_det, x2_det, y2_det)
+                if mask_bbox is not None:
+                    overlay_x1, overlay_y1, overlay_x2, overlay_y2 = mask_bbox
+
+                # Check if using segmentation model
+                use_segmentation_black = "seg" in yolo_model_name.lower()
+
+                # Either blur the face or apply emoji/black overlay
                 if blur_enabled:
-                    processed_bgr = blur_face_on_image(processed_bgr, x1, y1, x2, y2, strength=blur_strength)
-                    emoji_resized = None
+                    processed_bgr = blur_face_on_image(processed_bgr, overlay_x1, overlay_y1, overlay_x2, overlay_y2, blur_strength, mask_full)
                 else:
-                    # Load and resize emoji to face size
-                    emoji_path = f"emojis/{emoji_map.get(emotion, 'neutral.png')}"
-                    if os.path.exists(emoji_path):
-                        emoji_img = cv2.imread(emoji_path, cv2.IMREAD_UNCHANGED)
-                        h, w = y2 - y1, x2 - x1
-                        emoji_resized = cv2.resize(emoji_img, (w, h))
+                    if use_segmentation_black:
+                        # Black out the segmented face pixels (no emoji needed)
+                        processed_bgr = blend_emoji_on_face(processed_bgr, overlay_x1, overlay_y1, overlay_x2, overlay_y2, None, mask_full, use_black=True)
                     else:
-                        emoji_resized = None
+                        # Load emoji and blend normally
+                        emoji_path = f"emojis/{emoji_map.get(emotion, 'neutral.png')}"
+                        if os.path.exists(emoji_path):
+                            emoji_img = cv2.imread(emoji_path, cv2.IMREAD_UNCHANGED)
+                        else:
+                            emoji_img = None
+                            logging.warning(f"Emoji not found: {emoji_path}")
+                        processed_bgr = blend_emoji_on_face(processed_bgr, overlay_x1, overlay_y1, overlay_x2, overlay_y2, emoji_img, mask_full, use_black=False)
 
-
-                    # Blend emoji on the face
-                    processed_bgr = blend_emoji_on_face(processed_bgr, x1, y1, x2, y2, emoji_resized)
-
-                # Draw on BGR
+                # STEP 3: Draw bounding box (use YOLO box)
                 box_color = (255, 165, 0) if vlm_used else (0, 255, 0)  # Orange if VLM used, green otherwise
-                label = f"{emotion} ({confidence_value:.2f})"
-                cv2.rectangle(processed_bgr, (x1, y1), (x2, y2), box_color, 2)
-                cv2.putText(processed_bgr, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, box_color, 2)
+                label = f"{emotion}{vlm_indicator} ({confidence_value:.2f})"
+                cv2.rectangle(processed_bgr, (x1_det, y1_det), (x2_det, y2_det), box_color, 2)
+                cv2.putText(processed_bgr, label, (x1_det, y1_det - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, box_color, 2)
 
         # Convert back to RGB
         processed_rgb = cv2.cvtColor(processed_bgr, cv2.COLOR_BGR2RGB)
@@ -516,7 +624,7 @@ with gr.Blocks(title="Face Detection & Emotion Classification") as demo:
     gr.Markdown("**VLM Validation:** When emotion confidence is low, Qwen3-VL (Vision-Language Model) validates predictions. Orange boxes indicate VLM-validated results.")
     
     with gr.Row():
-        yolo_model = gr.Dropdown(choices=["yolov12n-face.pt", "yolov8n.pt", "yolov8s.pt", "yolov8m.pt"], label="YOLO Model", value="yolov12n-face.pt")
+        yolo_model = gr.Dropdown(choices=["yolov12n-face.pt", "yolov8n.pt", "yolov8s.pt", "yolov8m.pt", "yolo11n-seg.pt"], label="YOLO Model", value="yolov12n-face.pt")
         emotion_model = gr.Dropdown(choices=["resnet18_emotion_classifier.pth", "combined_resnet18_emotion_classifier.pth", "combine_regnetY16GF_emotion_classifier.pth"], label="Emotion Model", value="combine_regnetY16GF_emotion_classifier.pth")
         confidence = gr.Slider(minimum=0.1, maximum=1.0, value=0.5, label="YOLO Confidence Threshold")
 
@@ -553,7 +661,7 @@ with gr.Blocks(title="Face Detection & Emotion Classification") as demo:
                 process_webcam,
                 inputs=[webcam_input, yolo_model, emotion_model, confidence, vlm_enabled, vlm_threshold, blur_enabled, blur_strength],
                 outputs=[webcam_input],
-                stream_every=0.05, # Adjusted for smoother streaming
+                stream_every=0.1, # Adjusted for smoother streaming
                 concurrency_limit=10
             )
 
