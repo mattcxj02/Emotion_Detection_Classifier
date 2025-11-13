@@ -625,7 +625,7 @@ with gr.Blocks(title="Face Detection & Emotion Classification") as demo:
     
     with gr.Row():
         yolo_model = gr.Dropdown(choices=["yolov12n-face.pt", "yolov8n.pt", "yolov8s.pt", "yolov8m.pt", "yolo11n-seg.pt"], label="YOLO Model", value="yolov12n-face.pt")
-        emotion_model = gr.Dropdown(choices=["resnet18_emotion_classifier.pth", "combined_resnet18_emotion_classifier.pth", "combine_regnetY16GF_emotion_classifier.pth"], label="Emotion Model", value="combine_regnetY16GF_emotion_classifier.pth")
+        emotion_model = gr.Dropdown(choices=["resnet18_emotion_classifier.pth", "combined_resnet18_emotion_classifier.pth", "combine_regnetY16GF_emotion_classifier.pth", "combine_regnetY16GF_emotion_classifier_noiseReduction.pth"], label="Emotion Model", value="combine_regnetY16GF_emotion_classifier_noiseReduction.pth")
         confidence = gr.Slider(minimum=0.1, maximum=1.0, value=0.5, label="YOLO Confidence Threshold")
 
     with gr.Row():
