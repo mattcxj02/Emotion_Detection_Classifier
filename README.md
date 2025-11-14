@@ -2,9 +2,20 @@
 
 This project provides two applications for face detection and emotion classification: a Gradio-based web application and a Tkinter-based desktop application.
 
+
+## 📂 Model Architecture
+
+![Model Architecture](asset/new_pipeline.png)
+
+
 ## 🚀 Gradio Web Application (`app.py`)
 
 A web-based application offering advanced features for face detection and emotion classification, accessible via a browser.
+
+Link: 
+```angular2html
+
+```
 
 ### Features
 
@@ -25,24 +36,7 @@ python app.py
 
 The application will typically be available at `http://localhost:8080` or a similar address.
 
-## 🖥️ Tkinter Desktop Application (`main.py`)
 
-A desktop application providing basic face detection and emotion classification functionalities.
-
-### Features
-
-- **Face Detection**: Uses various YOLO models (e.g., `yolov12n-face.pt`, `yolov8n.pt`, `yolov8s.pt`, `yolov8m.pt`) for face detection.
-- **Emotion Classification**: Employs emotion classification models (e.g., `resnet18_emotion_classifier.pth`, `efficientnet_b4_Tuned2_best.pth`) to classify emotions.
-- **Interactive GUI**: Tkinter-based interface with drag-and-drop support for images.
-- **Adjustable Confidence**: Set a confidence threshold for face detection.
-
-### Usage
-
-To run the Tkinter desktop application:
-
-```bash
-python main.py
-```
 
 ## ⚙️ Installation
 
@@ -57,10 +51,30 @@ python main.py
     ```
 3.  Download the necessary models into the `models/` directory. The application expects specific `.pt` and `.pth` files.
 
-## 📂 Model Architecture
 
-![Model Architecture](asset/new_pipeline.png)
 
-## 📄 License
 
-This project is licensed under the MIT License.
+## 🖥️ Tkinter Desktop Application (`main.py`) [depreciated]
+
+A desktop application providing basic face detection and emotion classification functionalities.
+
+### Features
+
+- **Live Face Detection**: Uses various YOLO models (e.g., `yolov12n-face.pt`, `yolov8n.pt`, `yolov8s.pt`, `yolov8m.pt`) for face detection.
+- **Live Emotion Classification**: Employs emotion classification models (e.g., `resnet18_emotion_classifier.pth`, `efficientnet_b4_Tuned2_best.pth`) to classify emotions.
+- **Interactive GUI**: Tkinter-based interface with drag-and-drop support for images.
+- **Adjustable Confidence**: Set a confidence threshold for face detection.
+
+
+### Usage
+
+To run the Tkinter desktop application:
+
+```bash
+python main.py
+```
+
+
+
+
+
