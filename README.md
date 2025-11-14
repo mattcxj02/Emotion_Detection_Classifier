@@ -59,7 +59,7 @@ python main.py
 
 ## 📂 Model Architecture
 
-![Model Architecture](asset/model_arch.jpg)
+![Model Architecture](asset/new_pipeline.png)
 
 ## 📄 License
 
