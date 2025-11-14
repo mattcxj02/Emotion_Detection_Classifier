@@ -53,21 +53,48 @@ models_loaded = False  # Flag to load once
 vlm_loaded = False  # Flag for VLM loading
 VLM_CONFIDENCE_THRESHOLD = 0.7  # Threshold for invoking VLM validation
 
-def ensure_models_loaded(yolo_model_name, emotion_model_name):
+# Global for activations
+activations = None
+
+def hook_fn(module, input, output):
+    global activations
+    activations = output
+
+def get_layer_choices(model_name):
+    if "resnet" in model_name.lower():
+        return ["layer1", "layer2", "layer3", "layer4"]
+    elif "regnet" in model_name.lower():
+        return ["trunk_output[0]", "trunk_output[1]", "trunk_output[2]", "trunk_output[3]", "trunk_output"]
+    else:
+        # efficientnet
+        return [f"features[{i}]" for i in range(8)] + ["features[-1]"]
+
+def get_module_from_path(model, path):
+    if '[' in path and ']' in path:
+        # Handle indexed paths like "trunk_output[0]"
+        base, index_part = path.split('[', 1)
+        index = int(index_part.rstrip(']'))
+        base_module = getattr(model, base)
+        return base_module[index]
+    else:
+        # Simple attribute access like "layer1"
+        return getattr(model, path)
+
+def ensure_models_loaded(yolo_model_name, emotion_model_name, layer_selection):
     global yolo_current, emotion_current, models_loaded
     if models_loaded:
         return
     try:
         yolo_current = YOLO(f"models/{yolo_model_name}")
         logging.info(f"YOLO model {yolo_model_name} loaded.")
-        emotion_current = load_emotion_model(emotion_model_name)
+        emotion_current = load_emotion_model(emotion_model_name, layer_selection)
         logging.info(f"Emotion model {emotion_model_name} loaded.")
         models_loaded = True
     except Exception as e:
         logging.error(f"Model loading failed: {e}")
         raise e  # Re-raise to handle in caller
 
-def load_emotion_model(model_name):
+def load_emotion_model(model_name, layer_selection):
     path = f"models/{model_name}"
     num_classes = 7
     model = None
@@ -109,6 +136,11 @@ def load_emotion_model(model_name):
     model.load_state_dict(state_dict)
     model.to(device)
     model.eval()
+
+    # Register hook based on layer_selection
+    hook_module = get_module_from_path(model, layer_selection)
+    hook_module.register_forward_hook(hook_fn)
+
     return model
 
 def load_vlm_model():
@@ -393,11 +425,16 @@ def blur_face_on_image(image_bgr, x1, y1, x2, y2, strength=23, mask_full=None):
 
     return image_bgr
 
-def update_models(yolo_model_name, emotion_model_name):
+def update_models(yolo_model_name, emotion_model_name, layer_selection):
     global yolo_current, emotion_current, models_loaded
     models_loaded = False  # Reset to reload on next request
     status = "Models will reload on next request."
     return status
+
+def update_layer_choices(emotion_model_name):
+    choices = get_layer_choices(emotion_model_name)
+    value = choices[-1] if choices else None
+    return gr.update(choices=choices, value=value)
 
 def update_vlm_status(enabled, threshold):
     """Update VLM status display when checkbox or slider changes"""
@@ -406,16 +443,20 @@ def update_vlm_status(enabled, threshold):
     else:
         return "✗ VLM Disabled - Using only base emotion classifier"
 
-def process_image(image, yolo_model_name, emotion_model_name, confidence, vlm_enabled, vlm_threshold, blur_enabled=False, blur_strength=23):
+def process_image(image, yolo_model_name, emotion_model_name, confidence, vlm_enabled, vlm_threshold, blur_enabled=False, blur_strength=23, layer_selection="Late"):
     global yolo_current, emotion_current
 
     logging.info(f"process_image called: vlm_enabled={vlm_enabled}, vlm_threshold={vlm_threshold}")
 
     if image is None:
-        return None, []
+        return None, [], []
 
     try:
-        ensure_models_loaded(yolo_model_name, emotion_model_name)  # Lazy load here
+        ensure_models_loaded(yolo_model_name, emotion_model_name, layer_selection)  # Lazy load here
+        
+        # Reset activations
+        global activations
+        activations = None
         
         # Convert Gradio image (PIL) to OpenCV
         img_array = np.array(image)
@@ -512,16 +553,31 @@ def process_image(image, yolo_model_name, emotion_model_name, confidence, vlm_en
         processed_rgb = cv2.cvtColor(processed_bgr, cv2.COLOR_BGR2RGB)
         processed_pil = Image.fromarray(processed_rgb)
 
-        if face_count == 0:
-            return processed_pil, []
+        # Prepare feature maps
+        feature_imgs = []
+        if activations is not None:
+            # activations shape: [1, C, H, W]
+            num_channels = min(10, activations.shape[1])  # Show up to 10 channels
+            for i in range(num_channels):
+                feat = activations[0, i, :, :].cpu().numpy()
+                # Normalize to 0-255
+                if feat.max() > feat.min():
+                    feat = (feat - feat.min()) / (feat.max() - feat.min()) * 255
+                else:
+                    feat = np.zeros_like(feat)
+                feat_img = Image.fromarray(feat.astype(np.uint8), mode='L')
+                feature_imgs.append((feat_img, f"Feature Map {i+1}"))
 
-        return processed_pil, face_previews
+        if face_count == 0:
+            return processed_pil, [], []
+
+        return processed_pil, face_previews, feature_imgs
     
     except Exception as e:
         logging.error(f"Error during image processing: {e}")
-        return Image.fromarray(np.array(image)), []
+        return Image.fromarray(np.array(image)), [], []
 
-def process_webcam(frame, yolo_model_name, emotion_model_name, confidence, vlm_enabled, vlm_threshold, blur_enabled=False, blur_strength=23):
+def process_webcam(frame, yolo_model_name, emotion_model_name, confidence, vlm_enabled, vlm_threshold, blur_enabled=False, blur_strength=23, layer_selection="Late"):
     global yolo_current, emotion_current
 
     # Log parameters (only first time to avoid spam)
@@ -534,7 +590,7 @@ def process_webcam(frame, yolo_model_name, emotion_model_name, confidence, vlm_e
         return frame
 
     try:
-        ensure_models_loaded(yolo_model_name, emotion_model_name)  # Lazy load here
+        ensure_models_loaded(yolo_model_name, emotion_model_name, layer_selection)  # Lazy load here
         
         frame_rgb = frame  # Already numpy RGB
         frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
@@ -627,6 +683,7 @@ with gr.Blocks(title="Face Detection & Emotion Classification") as demo:
         yolo_model = gr.Dropdown(choices=["yolov12n-face.pt", "yolov8n.pt", "yolov8s.pt", "yolov8m.pt", "yolo11n-seg.pt"], label="YOLO Model", value="yolov12n-face.pt")
         emotion_model = gr.Dropdown(choices=["resnet18_emotion_classifier.pth", "combined_resnet18_emotion_classifier.pth", "combine_regnetY16GF_emotion_classifier.pth", "combine_regnetY16GF_emotion_classifier_noiseReduction.pth"], label="Emotion Model", value="combine_regnetY16GF_emotion_classifier_noiseReduction.pth")
         confidence = gr.Slider(minimum=0.1, maximum=1.0, value=0.5, label="YOLO Confidence Threshold")
+        layer_selection = gr.Dropdown(choices=["trunk_output[0]", "trunk_output[1]", "trunk_output[2]", "trunk_output[3]", "trunk_output"], label="Feature Map Layer", value="trunk_output")
 
     with gr.Row():
         vlm_enabled = gr.Checkbox(label="Enable VLM Validation", value=True, info="Use Qwen3-VL to validate low-confidence predictions (updates in real-time)")
@@ -639,8 +696,10 @@ with gr.Blocks(title="Face Detection & Emotion Classification") as demo:
         status = gr.Textbox(label="Model Status", value="Models load on first request.")
         vlm_status = gr.Textbox(label="VLM Status", value="✓ VLM Enabled - Will validate predictions with confidence < 70%")
     
-    yolo_model.change(update_models, inputs=[yolo_model, emotion_model], outputs=status)
-    emotion_model.change(update_models, inputs=[yolo_model, emotion_model], outputs=status)
+    yolo_model.change(update_models, inputs=[yolo_model, emotion_model, layer_selection], outputs=status)
+    emotion_model.change(update_models, inputs=[yolo_model, emotion_model, layer_selection], outputs=status)
+    emotion_model.change(update_layer_choices, inputs=emotion_model, outputs=layer_selection)
+    layer_selection.change(update_models, inputs=[yolo_model, emotion_model, layer_selection], outputs=status)
 
     # Update VLM status when checkbox or threshold changes
     vlm_enabled.change(update_vlm_status, inputs=[vlm_enabled, vlm_threshold], outputs=vlm_status)
@@ -653,13 +712,14 @@ with gr.Blocks(title="Face Detection & Emotion Classification") as demo:
             with gr.Row():
                 image_output = gr.Image(label="Processed Image")
             gallery_output = gr.Gallery(label="Face Previews", show_label=True, columns=3, height="auto")
-            process_btn.click(process_image, inputs=[image_input, yolo_model, emotion_model, confidence, vlm_enabled, vlm_threshold, blur_enabled, blur_strength], outputs=[image_output, gallery_output])
+            feature_maps_output = gr.Gallery(label="Activation Feature Maps", show_label=True, columns=5, height="auto")
+            process_btn.click(process_image, inputs=[image_input, yolo_model, emotion_model, confidence, vlm_enabled, vlm_threshold, blur_enabled, blur_strength, layer_selection], outputs=[image_output, gallery_output, feature_maps_output])
         
         with gr.Tab("Webcam"):
             webcam_input = gr.Image(sources=["webcam"], type="numpy", streaming=True, label="Webcam Feed")
             webcam_input.stream(
                 process_webcam,
-                inputs=[webcam_input, yolo_model, emotion_model, confidence, vlm_enabled, vlm_threshold, blur_enabled, blur_strength],
+                inputs=[webcam_input, yolo_model, emotion_model, confidence, vlm_enabled, vlm_threshold, blur_enabled, blur_strength, layer_selection],
                 outputs=[webcam_input],
                 stream_every=0.1, # Adjusted for smoother streaming
                 concurrency_limit=10
