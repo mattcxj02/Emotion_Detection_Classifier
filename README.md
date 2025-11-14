@@ -1,7 +1,10 @@
 # Face Detection & Emotion Classification
 
-This project provides two applications for face detection and emotion classification: a Gradio-based web application and a Tkinter-based desktop application.
+**Objectives**
+This project aims to develop an end-to-end real time facial emotion recognition system for both images and live video. It uses YOLO to detect faces, a CNN to classify seven core emotions, and emoji-based face swapping to enhance visualization. To protect privacy, the system applies face-segmentation blurring to anonymize identities. Combined, these components create a robust, real-time pipeline for emotion analysis, interactive visualization, and privacy-preserving processing
 
+
+![app](asset/live_feed.jpg)
 
 ## 📂 Model Architecture
 
@@ -26,19 +29,9 @@ Link:
 - **Customizable Processing**: Adjustable confidence threshold for detection, option to blur faces or overlay emojis, and visualization of activation feature maps.
 - **Model Selection**: Easily switch between different YOLO and emotion classification models.
 
-### Usage
+## Usage
 
-To run the Gradio web application:
-
-```bash
-python app.py
-```
-
-The application will typically be available at `http://localhost:8080` or a similar address.
-
-
-
-## ⚙️ Installation
+### ⚙️ Installation
 
 1.  Clone the repository:
     ```bash
@@ -52,13 +45,25 @@ The application will typically be available at `http://localhost:8080` or a simi
 3.  Download the necessary models into the `models/` directory. The application expects specific `.pt` and `.pth` files.
 
 
-# Results and Analysis
+To run the Gradio web application:
+
+```bash
+python app.py
+```
+
+The application will typically be available at `http://localhost:8080` or a similar address.
+
+
+
+## Results and Analysis
 ![Results_1](asset/f1-score.png)
 
 ![Results_2](asset/training.png)
 
-## Activation Layers of CNN Model
+### Activation Layers of CNN Model
 ![Results_3](asset/activation_layer.jpg)
+
+
 
 ## References/Datasets
 Abbas, S. (2024). Expression in the Wild (EXP-W) Dataset. Kaggle. 
@@ -68,11 +73,13 @@ AffectNet. Kaggle.
 Retrieved from https://www.kaggle.com/datasets/mstjebashazida/affectnet
 
 
-## 🖥️ Tkinter Desktop Application (`main.py`) [depreciated]
+
+
+### 🖥️ Tkinter Desktop Application (`main.py`) [depreciated]
 
 A desktop application providing basic face detection and emotion classification functionalities.
 
-### Features
+#### Features
 
 - **Live Face Detection**: Uses various YOLO models (e.g., `yolov12n-face.pt`, `yolov8n.pt`, `yolov8s.pt`, `yolov8m.pt`) for face detection.
 - **Live Emotion Classification**: Employs emotion classification models (e.g., `resnet18_emotion_classifier.pth`, `efficientnet_b4_Tuned2_best.pth`) to classify emotions.
@@ -80,7 +87,7 @@ A desktop application providing basic face detection and emotion classification 
 - **Adjustable Confidence**: Set a confidence threshold for face detection.
 
 
-### Usage
+#### Usage
 
 To run the Tkinter desktop application:
 
