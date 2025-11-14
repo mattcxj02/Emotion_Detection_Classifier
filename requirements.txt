@@ -7,3 +7,4 @@ Pillow
 numpy
 transformers>=4.40.0
 accelerate
+tkinterdnd2
