@@ -52,6 +52,20 @@ The application will typically be available at `http://localhost:8080` or a simi
 3.  Download the necessary models into the `models/` directory. The application expects specific `.pt` and `.pth` files.
 
 
+# Results and Analysis
+![Results_1](asset/f1-score.png)
+
+![Results_2](asset/training.png)
+
+## Activation Layers of CNN Model
+![Results_3](asset/activation_layer.jpg)
+
+## References/Datasets
+Abbas, S. (2024). Expression in the Wild (EXP-W) Dataset. Kaggle. 
+Retrieved from https://www.kaggle.com/datasets/shahzadabbas/expression-in-the-wild-expw-dataset Shazida, M. J. (2024). 
+
+AffectNet. Kaggle. 
+Retrieved from https://www.kaggle.com/datasets/mstjebashazida/affectnet
 
 
 ## 🖥️ Tkinter Desktop Application (`main.py`) [depreciated]
