@@ -728,7 +728,7 @@ with gr.Blocks(title="Face Detection & Emotion Classification") as demo:
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
     demo.launch(
-        server_name="localhost",
+        server_name="0.0.0.0",
         server_port=port,
         share=False,  # Disable public sharing in cloud
         quiet=False,  # Enable logs for debugging
