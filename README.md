@@ -24,7 +24,7 @@ https://aai3001pr12demo2-131604205847.asia-southeast1.run.app
 
 - **Face Detection**: Utilizes various YOLO models (e.g., `yolov12n-face.pt`, `yolov8n.pt`, `yolov8s.pt`, `yolov8m.pt`, `yolo11n-seg.pt`) for accurate face detection, including segmentation capabilities.
 - **Emotion Classification**: Employs multiple emotion classification models (e.g., `resnet18_emotion_classifier.pth`, `combine_regnetY16GF_emotion_classifier.pth`) to classify emotions into 7 categories (Angry, Disgust, Fear, Happy, Sad, Surprise, Neutral).
-- **Vision-Language Model (VLM) Validation**: Integrates Qwen3-VL to validate low-confidence emotion predictions, improving accuracy.
+- **Vision-Language Model (VLM) Validation**: Integrates `Qwen3-VL-2B-Instruct` to validate low-confidence emotion predictions, improving accuracy. Utillizes HuggingFace Transformer pipeline for inference
 - **Interactive Interface**: Gradio-based UI with support for image uploads and real-time webcam processing.
 - **Customizable Processing**: Adjustable confidence threshold for detection, option to blur faces or overlay emojis, and visualization of activation feature maps.
 - **Model Selection**: Easily switch between different YOLO and emotion classification models.
