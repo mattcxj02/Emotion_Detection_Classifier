@@ -35,8 +35,8 @@ https://aai3001pr12demo2-131604205847.asia-southeast1.run.app
 
 1.  Clone the repository:
     ```bash
-    git clone https://github.com/your-username/your-repo-name.git
-    cd your-repo-name
+    git clone https://github.com/mattcxj02/Emotion_Detection_Classifier
+    cd Emotion_Detection_Classifier
     ```
 2.  Install the required dependencies:
     ```bash
